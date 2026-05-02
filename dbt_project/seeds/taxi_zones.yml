@@ -1,0 +1,23 @@
+version: 2
+
+seeds:
+  - name: taxi_zones
+    description: >
+      NYC Taxi Zone lookup table.
+      Maps the 265 TLC location IDs to their borough and zone name.
+      This is the official zone list published by the NYC TLC.
+      Used in gold layer models to enrich trips with human-readable location names.
+    columns:
+      - name: LocationID
+        description: "Numeric taxi zone ID (1–265). Matches PULocationID and DOLocationID in trip data."
+        tests:
+          - not_null
+          - unique
+      - name: Borough
+        description: "NYC borough name (Manhattan, Brooklyn, Queens, Bronx, Staten Island, EWR)"
+        tests:
+          - not_null
+      - name: Zone
+        description: "Specific neighbourhood or zone name within the borough"
+      - name: service_zone
+        description: "Service zone type: Yellow Zone (Manhattan core), Boro Zone, Airports, EWR"

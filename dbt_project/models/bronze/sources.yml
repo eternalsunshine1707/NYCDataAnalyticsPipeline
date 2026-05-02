@@ -1,0 +1,63 @@
+# models/bronze/sources.yml
+# ──────────────────────────
+# This file tells dbt where the raw data comes from.
+# It points to the table that AWS Glue created in the catalogue
+# after crawling your S3 bucket.
+
+version: 2
+
+sources:
+  - name: raw
+    description: >
+      Raw NYC TLC yellow cab trip data.
+      Sourced from the NYC Taxi & Limousine Commission public dataset.
+      Data lives in S3 as Parquet files, catalogued by AWS Glue,
+      and queryable through AWS Athena.
+    database: awsdatacatalog
+    schema: nyc_taxi_db
+
+    tables:
+      - name: yellow_taxi
+        description: >
+          One row per yellow cab trip in NYC.
+          Each file covers one calendar month.
+          Partitioned by year and month for efficient querying.
+        columns:
+          - name: VendorID
+            description: "1 = Creative Mobile Technologies, 2 = VeriFone Inc."
+          - name: tpep_pickup_datetime
+            description: "Date and time the meter was engaged (trip started)"
+          - name: tpep_dropoff_datetime
+            description: "Date and time the meter was disengaged (trip ended)"
+          - name: passenger_count
+            description: "Number of passengers — entered by the driver"
+          - name: trip_distance
+            description: "Trip distance in miles (from meter)"
+          - name: RatecodeID
+            description: "1=Standard rate, 2=JFK, 3=Newark, 4=Nassau/Westchester, 5=Negotiated, 6=Group ride"
+          - name: store_and_fwd_flag
+            description: "Y = trip record was held in vehicle memory before sending; N = sent immediately"
+          - name: PULocationID
+            description: "TLC Taxi Zone where the meter was engaged (pickup)"
+          - name: DOLocationID
+            description: "TLC Taxi Zone where the meter was disengaged (dropoff)"
+          - name: payment_type
+            description: "1=Credit card, 2=Cash, 3=No charge, 4=Dispute, 5=Unknown, 6=Voided trip"
+          - name: fare_amount
+            description: "Meter fare amount — does not include surcharges or tips"
+          - name: extra
+            description: "Miscellaneous extras and surcharges (rush hour, overnight)"
+          - name: mta_tax
+            description: "MTA tax ($0.50 triggered based on metered rate)"
+          - name: tip_amount
+            description: "Tip — automatically populated for credit card tips; cash tips not included"
+          - name: tolls_amount
+            description: "Total amount of all tolls paid"
+          - name: improvement_surcharge
+            description: "Improvement surcharge assessed at flag drop ($0.30)"
+          - name: total_amount
+            description: "Total amount charged to passengers (not including cash tips)"
+          - name: congestion_surcharge
+            description: "Congestion surcharge for trips in Manhattan south of 96th St ($2.50)"
+          - name: airport_fee
+            description: "Airport fee ($1.25 for pickups at LaGuardia or JFK)"

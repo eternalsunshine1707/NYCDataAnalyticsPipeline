@@ -1,0 +1,32 @@
+# ~/.dbt/profiles.yml
+# ─────────────────────────────────────────────────────────────
+# This file tells dbt HOW to connect to AWS Athena.
+# It lives in your HOME directory, NOT in the project folder.
+# (Keeping credentials outside the project = safe to push to GitHub)
+#
+# After setting this up, run: dbt debug
+# to verify the connection works.
+# ─────────────────────────────────────────────────────────────
+
+nyc_taxi:
+  target: dev
+  outputs:
+    dev:
+      type: athena
+      region_name: us-east-1                          # Your AWS region
+      s3_staging_dir: s3://YOUR-BUCKET/athena-results/ # Where Athena writes query results
+      schema: nyc_taxi_db                              # Glue/Athena database name
+      database: awsdatacatalog                         # Always this value for Athena
+      threads: 4                                       # Parallel query threads
+
+      # Authentication — uses your AWS credentials automatically
+      # Make sure AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are set in your environment
+      # OR use an IAM role if running on EC2/ECS
+
+    prod:
+      type: athena
+      region_name: us-east-1
+      s3_staging_dir: s3://YOUR-BUCKET/athena-results/
+      schema: nyc_taxi_db
+      database: awsdatacatalog
+      threads: 8

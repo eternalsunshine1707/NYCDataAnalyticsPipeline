@@ -1,0 +1,78 @@
+version: 2
+
+models:
+
+  # ── Silver Layer Tests ──────────────────────────────────────────────────────
+
+  - name: fct_trips
+    description: >
+      One row per valid NYC yellow cab trip, cleaned and enriched.
+      Bad rows (negative fares, impossible durations, invalid locations) are excluded.
+    columns:
+      - name: pickup_datetime
+        description: "Date and time the trip started"
+        tests:
+          - not_null
+
+      - name: fare_amount
+        description: "Base meter fare (positive, cleaned)"
+        tests:
+          - not_null
+
+      - name: pickup_location_id
+        description: "NYC Taxi Zone ID for pickup (1-265)"
+        tests:
+          - not_null
+
+      - name: payment_type_name
+        description: "Human-readable payment method"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Credit Card', 'Cash', 'No Charge', 'Dispute', 'Unknown', 'Voided']
+
+      - name: weekday_or_weekend
+        description: "Whether the trip was on a weekday or weekend"
+        tests:
+          - accepted_values:
+              values: ['Weekday', 'Weekend']
+
+  # ── Gold Layer Tests ────────────────────────────────────────────────────────
+
+  - name: agg_fare_analytics
+    description: "Fare metrics aggregated by borough, zone, month, and payment type"
+    columns:
+      - name: total_trips
+        description: "Number of trips in this group"
+        tests:
+          - not_null
+
+      - name: avg_fare_amount
+        description: "Average base fare for this group"
+        tests:
+          - not_null
+
+  - name: agg_peak_hour_demand
+    description: "Trip volume and revenue by hour, day of week, and borough"
+    columns:
+      - name: total_trips
+        tests:
+          - not_null
+
+      - name: hour_of_day
+        tests:
+          - not_null
+
+  - name: agg_tip_behavior
+    description: "Tip rate and tip amount statistics by borough and time context"
+    columns:
+      - name: tip_rate_pct
+        tests:
+          - not_null
+
+  - name: agg_driver_earnings
+    description: "Driver earnings distribution by borough and time of day"
+    columns:
+      - name: avg_earnings_per_trip
+        tests:
+          - not_null

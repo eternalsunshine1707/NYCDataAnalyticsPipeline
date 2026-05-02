@@ -1,0 +1,63 @@
+name: nyc_taxi
+version: "1.0.0"
+config-version: 2
+
+# The profile connects dbt to AWS Athena.
+# The profile is defined in ~/.dbt/profiles.yml (see docs/dbt_setup.md)
+profile: nyc_taxi
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+# ── Model Config ───────────────────────────────────────────────────────────────
+#
+# We use a 3-layer architecture:
+#
+#   bronze/  → Raw data, read directly from S3 via Glue/Athena
+#              No transformations. Just a pointer to the source data.
+#
+#   silver/  → Cleaned data. Bad rows removed, types fixed, columns renamed
+#              to be human-readable. One row = one taxi trip.
+#
+#   gold/    → Pre-aggregated analytics tables. These power the dashboard.
+#              Grouped by hour, borough, payment type, etc.
+#
+# This layering means:
+#   • If something breaks in bronze, it doesn't corrupt gold.
+#   • Each layer can be tested and validated independently.
+#   • The dashboard only touches gold — fast, pre-computed data.
+
+models:
+  nyc_taxi:
+    bronze:
+      +materialized: view          # Views — no data stored, just a SQL alias
+      +schema: bronze
+      +tags: ["bronze", "raw"]
+
+    silver:
+      +materialized: table         # Real tables — data is stored in S3 as Parquet
+      +schema: silver
+      +format: parquet
+      +tags: ["silver", "cleaned"]
+
+    gold:
+      +materialized: table         # Pre-aggregated tables for fast dashboard queries
+      +schema: gold
+      +format: parquet
+      +tags: ["gold", "analytics"]
+
+vars:
+  # These variables let you filter data during development
+  # so you don't have to process all 3M+ rows every run.
+  start_date: "2024-01-01"
+  end_date: "2026-03-31"
+
+  # Location ID range — NYC has 265 taxi zones
+  max_location_id: 265
