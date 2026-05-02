@@ -1,144 +1,66 @@
-# 🚕 NYC Taxi Trip Analytics Pipeline
+# NYC Taxi Trip Analytics Pipeline
 
-A complete, end-to-end data engineering project that ingests, cleans, transforms, and visualises over 3 million real New York City taxi trips — surfacing insights about fare patterns, peak demand windows, tip behaviour, and driver earnings across all five NYC boroughs.
-
----
-
-## What Does This Project Actually Do?
-
-Imagine you have 3 million rows of raw taxi trip data — messy, uncleaned, full of edge cases. A trip with a negative fare amount. A ride that lasted 0 seconds. Passenger counts of 200.
-
-This pipeline takes all of that raw data and turns it into a clean, interactive dashboard that answers real questions:
-
-- **When does demand surge?** (Spoiler: Friday evenings are the biggest spike of the week — bigger than any morning rush.)
-- **Which zones generate higher fares?** Certain pickup areas consistently command higher average fares.
-- **Who tips, and when?** Evening hours and airport trips show measurably different tipping patterns.
-- **What does a driver actually earn?** We estimate implied hourly earnings by borough and time of day.
-
-The whole thing runs on real, publicly available data from the NYC Taxi & Limousine Commission.
+A complete data engineering project that ingests, cleans, transforms, and visualises over 3 million real New York City yellow cab trips - built on AWS, dbt, and Streamlit.
 
 ---
 
-## The Big Picture — How Data Flows Through This System
+## What This Project Does
 
-Here's the journey data takes, from raw files to interactive charts:
+It takes raw, messy taxi trip data published by the NYC Taxi and Limousine Commission and turns it into a clean, interactive dashboard that answers real questions:
+
+- When does demand surge during the week?
+- Which boroughs generate higher fares?
+- How do tipping patterns change by time of day?
+- What does a driver actually earn per hour across different boroughs?
+
+The data covers January 2024 through March 2026 - over two years of real trips.
+
+---
+
+## How Data Flows Through the System
 
 ```
-NYC TLC Website (public data)
-        │
-        │  Python script downloads monthly Parquet files
-        ▼
-AWS S3 (your data lake)
-        │
-        │  Great Expectations checks data quality
-        │  AWS Glue Crawler scans files + builds a catalogue
-        ▼
-AWS Athena (SQL query engine)
-        │
-        │  dbt runs SQL transformations in 3 layers:
-        │    Bronze → Silver → Gold
-        ▼
+NYC TLC Website (public Parquet files)
+        |
+        |  Python downloads monthly files and uploads to S3
+        v
+AWS S3 (raw data storage)
+        |
+        |  Great Expectations checks data quality
+        |  AWS Glue Crawler scans files and registers the schema
+        v
+AWS Athena (SQL query engine over S3)
+        |
+        |  dbt runs transformations in 3 layers:
+        |    Bronze  -->  Silver  -->  Gold
+        v
 Streamlit Dashboard
-        │
-        │  Interactive charts in your browser
-        ▼
-Insights & Decisions
+        |
+        v
+Interactive charts in your browser
 ```
 
-We'll go through each of these steps in plain English below.
-
 ---
 
-## Why Each Piece Exists
+## Why Each Tool Is Used
 
-### Step 1 — Getting the Data (Python + S3)
+**Python** handles downloading the monthly Parquet files from the NYC TLC website and uploading them to S3. It also runs the data quality checks.
 
-The NYC TLC publishes monthly trip records at a public URL. Each file is a compressed Parquet file (think: a smarter, smaller version of a CSV) covering all yellow cab trips in one month. A single month has ~300,000–400,000 trips.
+**AWS S3** is where all the raw files live. Think of it as a cloud hard drive. Everything else reads from here.
 
-We download these files using Python and store them in **AWS S3** — Amazon's cloud file storage. Think of S3 like a very large, very reliable hard drive in the cloud. Storing files there means:
-- The data is safe and doesn't disappear when your laptop dies
-- Multiple tools can read from the same place
-- You only pay for what you store (~$0.023/GB/month)
+**Great Expectations** runs automated checks on the raw data before it flows into dbt. Things like - are fares always positive? Are location IDs valid? Are there duplicate rows? If something critical fails, the pipeline stops rather than letting bad data through.
 
-> **Why not just keep them on my laptop?**
-> Because 3 million rows is large (~2GB as CSV), and more importantly — cloud tools like Athena can read directly from S3 without you downloading anything locally.
+**AWS Glue Crawler** scans the S3 files and registers the schema in a catalogue. This is what makes the data queryable through Athena - without it, Athena wouldn't know what columns exist or what types they are.
 
-### Step 2 — Checking Data Quality (Great Expectations)
+**AWS Athena** is a serverless query engine. You write SQL, it reads from S3 and gives you results back. No database server to maintain, and you only pay per query.
 
-Before we trust the data, we check it. Real-world data is messy. This step runs automated checks like:
+**dbt** runs the SQL transformations in three layers:
 
-- "Does the fare column exist and is it always positive?"
-- "Are all location IDs valid NYC taxi zones (1–265)?"
-- "Are there trips where the drop-off is before the pick-up?"
+- Bronze - a thin wrapper over the raw source. Minimal changes, just type casting and column renaming.
+- Silver - the real cleaning happens here. Bad rows removed, calculated fields added, coded values decoded into readable labels, time breakdowns added.
+- Gold - pre-aggregated tables designed to answer specific questions fast. These are what the dashboard queries.
 
-If critical checks fail, the pipeline stops and tells you. This prevents bad data from silently corrupting your analytics further down the line.
-
-### Step 3 — Making the Data Queryable (AWS Glue + Athena)
-
-Here's a problem: your data is in S3 as Parquet files, but SQL tools don't speak "Parquet file on S3" — they speak "table in a database."
-
-**AWS Glue** solves this. It scans your S3 files (this is called "crawling"), figures out what columns exist and what types they are, and registers the result in a catalogue. Now other tools know: "there's a table called `yellow_taxi` with columns like `fare_amount` and `pickup_datetime`."
-
-**AWS Athena** is a query engine that reads from S3 directly, using the catalogue that Glue built. You write SQL, Athena runs it against the files in S3, and you get results back — without needing a traditional database server running 24/7.
-
-> **Why is this cheaper than a normal database?**
-> Athena charges per query ($5 per TB scanned). For analytics that run a few times a day, this is far cheaper than keeping a database server running constantly. For this project, most queries cost fractions of a cent.
-
-### Step 4 — Transforming the Data (dbt)
-
-Raw data is messy. Column names are cryptic (what is `VendorID`?). Values are coded numbers (payment type `1` means "credit card"). Some rows are junk (fare = -$500?).
-
-**dbt** (data build tool) runs SQL transformations to turn raw data into clean, analysis-ready tables. We use a 3-layer approach:
-
-#### 🟫 Bronze Layer — "Just Get It In"
-A thin wrapper over the raw S3 data. Minimal changes — just cast types and rename a few columns. If the raw data changes, we can trace it back here.
-
-#### 🪨 Silver Layer — "Clean It Up"
-This is where the real transformation happens:
-- Remove impossible trips (negative fares, zero-second rides, invalid locations)
-- Add calculated fields: trip duration, fare per mile, tip percentage
-- Decode cryptic numbers into human-readable labels ("Credit Card", "JFK Airport", etc.)
-- Add time breakdowns: hour of day, day of week, "Morning Rush", "Evening Rush", etc.
-
-After the silver layer, every row represents **one valid, cleaned taxi trip**.
-
-#### 🥇 Gold Layer — "Answer the Questions"
-Pre-aggregated tables designed to answer specific questions fast. Instead of summing 3 million rows every time the dashboard loads, we pre-compute the aggregates:
-- `agg_fare_analytics` — average fare by borough, zone, and month
-- `agg_peak_hour_demand` — trip volume by hour × day of week × borough
-- `agg_tip_behavior` — tip rates and tip amounts by time, borough, payment type
-- `agg_driver_earnings` — implied earnings per hour by borough and time of day
-
-The dashboard only ever queries these gold tables — which is why it loads fast.
-
-### Step 5 — The Dashboard (Streamlit + Plotly)
-
-A Python-based web app that connects to Athena, pulls the gold layer data, and renders interactive charts. No JavaScript required — it's all Python.
-
----
-
-## What You'll See in the Dashboard
-
-### 📊 Revenue & Fares
-- Total revenue broken down by borough
-- Average fare trend across the year
-- Monthly trip volume by borough
-
-### 🕐 Peak Hour Demand
-- A heatmap showing every hour × day of week combination
-- Friday evening (5–8pm) consistently stands out as the highest-demand window — more than morning rush hour
-- This insight directly informs dynamic pricing strategy
-
-### 💵 Tip Behaviour
-- Credit card tip rates by time of day
-- Borough-by-borough tip comparison
-- Airport trips vs regular trips — airport trips consistently attract higher tips
-- Note: Cash tips aren't recorded in the dataset, so this analysis covers credit card trips only
-
-### 🚗 Driver Earnings
-- Implied hourly earnings rate by borough and time bucket
-- Distribution of earnings per trip
-- Which zones and times maximise driver income
+**Streamlit and Plotly** power the dashboard. It's all Python - no JavaScript needed.
 
 ---
 
@@ -146,246 +68,304 @@ A Python-based web app that connects to Athena, pulls the gold layer data, and r
 
 ```
 nyc-taxi-analytics/
-│
-├── ingestion/
-│   ├── ingest.py           ← Downloads data from NYC TLC, uploads to S3
-│   └── setup_glue.py       ← Creates Glue database, crawler, runs it
-│
-├── great_expectations_suite/
-│   └── validate.py         ← Data quality checks before transformation
-│
-├── dbt_project/
-│   ├── dbt_project.yml     ← dbt configuration
-│   ├── profiles_example.yml← How to connect dbt to Athena (copy to ~/.dbt/)
-│   ├── seeds/
-│   │   └── taxi_zones.csv  ← NYC taxi zone lookup table (265 zones)
-│   └── models/
-│       ├── bronze/         ← Raw staging models
-│       │   ├── sources.yml
-│       │   └── stg_yellow_taxi.sql
-│       ├── silver/         ← Cleaned trip facts
-│       │   └── fct_trips.sql
-│       └── gold/           ← Pre-aggregated analytics
-│           ├── agg_fare_analytics.sql
-│           ├── agg_peak_hour_demand.sql
-│           ├── agg_tip_behavior.sql
-│           └── agg_driver_earnings.sql
-│
-├── dashboard/
-│   └── app.py              ← Streamlit dashboard (run this last)
-│
-├── scripts/
-│   └── run_pipeline.py     ← Runs everything in order (one command)
-│
-├── .env.example            ← Template for your environment variables
-├── requirements.txt        ← Python dependencies
-└── README.md               ← You are here
+|
+|-- ingestion/
+|   |-- ingest.py           downloads NYC TLC data and uploads to S3
+|   |-- setup_glue.py       creates Glue database and crawler
+|
+|-- great_expectations_suite/
+|   |-- validate.py         data quality checks
+|
+|-- dbt_project/
+|   |-- dbt_project.yml     dbt configuration
+|   |-- profiles_example.yml  copy this to ~/.dbt/profiles.yml
+|   |-- seeds/
+|   |   |-- taxi_zones.csv  NYC taxi zone lookup table (265 zones)
+|   |-- models/
+|       |-- bronze/         raw staging models
+|       |-- silver/         cleaned trip facts
+|       |-- gold/           pre-aggregated analytics tables
+|
+|-- dashboard/
+|   |-- app.py              Streamlit dashboard
+|
+|-- scripts/
+|   |-- run_pipeline.py     runs everything in order
+|
+|-- .env.example            template for your environment variables
+|-- requirements.txt        Python dependencies
 ```
 
 ---
 
 ## Setup Guide
 
-Follow these steps in order. Each step builds on the last.
-
-### Prerequisites
-
-Before you start, you need:
-- Python 3.10 or higher
-- An AWS account (free tier works for small volumes)
-- AWS CLI installed and configured on your machine
-
-If you don't have the AWS CLI set up yet, follow [this guide](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html). It takes about 10 minutes.
+Follow these steps in order. Do not skip any.
 
 ---
 
-### Step 1 — Clone the repo and install Python dependencies
+### Before You Start
 
-```bash
+You need:
+- Python 3.10 or higher installed on your machine
+- An AWS account
+- AWS CLI installed - follow the guide at https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html
+
+---
+
+### Step 1 - Create an IAM User in AWS
+
+Never use your root AWS account for day-to-day work. Create a dedicated IAM user instead.
+
+1. Log into AWS with your root account
+2. Search for IAM and open it
+3. Left sidebar - Users - Create user
+4. Username: nyc-taxi-user - click Next
+5. Select "Attach policies directly"
+6. Search and tick these policies:
+   - AmazonS3FullAccess
+   - AmazonAthenaFullAccess
+   - AWSGlueConsoleFullAccess
+   - AdministratorAccess
+7. Click Next - Create user
+8. Click on nyc-taxi-user - Security credentials tab
+9. Scroll to Access keys - Create access key
+10. Select "Local code" - tick the checkbox - Next - Create access key
+11. Copy both the Access key ID and Secret access key somewhere safe. You will not see the secret again.
+
+To enable console login for this user:
+1. Still on the Security credentials tab - find "Console sign-in" - Enable console access
+2. Set a custom password - untick "must change password" - Apply
+3. Go to IAM Dashboard - copy the sign-in URL for IAM users
+4. Use that URL to log in as nyc-taxi-user going forward
+
+---
+
+### Step 2 - Create the Glue IAM Role (from root account)
+
+This is a separate role that Glue uses internally to access S3. Do this while logged in as root.
+
+1. IAM - Roles - Create role
+2. Select "AWS service" - select "Glue" - Next
+3. Attach these policies:
+   - AWSGlueServiceRole
+   - AmazonS3FullAccess
+4. Role name: nyc-taxi-glue-role - Create role
+5. Click on nyc-taxi-glue-role - copy the ARN at the top. It looks like: arn:aws:iam::123456789012:role/nyc-taxi-glue-role
+
+---
+
+### Step 3 - Create an S3 Bucket (from IAM user account)
+
+Log into AWS as nyc-taxi-user using the sign-in URL from Step 1.
+
+1. Search S3 - Create bucket
+2. Bucket name: nyc-taxi-data-yourname (must be globally unique, add your name)
+3. Region: us-east-1
+4. Leave everything else as default - Create bucket
+
+---
+
+### Step 4 - Clone the Repo and Install Dependencies
+
+```
 git clone https://github.com/YOUR_USERNAME/nyc-taxi-analytics.git
 cd nyc-taxi-analytics
-
 pip install -r requirements.txt
 ```
 
-This installs everything: boto3 (AWS SDK), dbt, Streamlit, Plotly, and more.
-
 ---
 
-### Step 2 — Set up your environment variables
+### Step 5 - Set Up Your .env File
 
-```bash
+```
 cp .env.example .env
 ```
 
-Open `.env` in any text editor and fill in your values:
+Open .env and fill in your values:
 
 ```
-AWS_ACCESS_KEY_ID=...       ← Your AWS access key
-AWS_SECRET_ACCESS_KEY=...   ← Your AWS secret key
-AWS_REGION=us-east-1        ← Your preferred AWS region
-S3_BUCKET_NAME=...          ← A bucket you created in S3 (must exist)
+AWS_ACCESS_KEY_ID=your_access_key_here
+AWS_SECRET_ACCESS_KEY=your_secret_key_here
+AWS_REGION=us-east-1
+
+S3_BUCKET_NAME=nyc-taxi-data-yourname
+S3_RAW_PREFIX=raw/yellow_taxi/
+S3_PROCESSED_PREFIX=processed/
+
 ATHENA_DATABASE=nyc_taxi_db
-ATHENA_OUTPUT_LOCATION=s3://your-bucket/athena-results/
-GLUE_IAM_ROLE=...           ← ARN of an IAM role with Glue + S3 access
+ATHENA_WORKGROUP=primary
+ATHENA_OUTPUT_LOCATION=s3://nyc-taxi-data-yourname/athena-results/
+
+GLUE_DATABASE=nyc_taxi_db
+GLUE_IAM_ROLE=arn:aws:iam::YOUR_ACCOUNT_ID:role/nyc-taxi-glue-role
+
+START_YEAR=2024
+START_MONTH=1
+END_YEAR=2026
+END_MONTH=3
 ```
-
-#### How to create an S3 bucket
-1. Go to [AWS S3 Console](https://s3.console.aws.amazon.com)
-2. Click "Create bucket"
-3. Give it a unique name (e.g. `myname-nyc-taxi-data`)
-4. Leave everything else at defaults → Create
-
-#### How to create the Glue IAM role
-1. Go to [AWS IAM Console](https://console.aws.amazon.com/iam)
-2. Click Roles → Create role
-3. Choose "AWS service" → "Glue"
-4. Attach these policies:
-   - `AWSGlueServiceRole`
-   - `AmazonS3FullAccess` (or a scoped-down version for your bucket)
-5. Name it something like `GlueS3Role` → Create
-6. Copy the role ARN and paste it into `.env` as `GLUE_IAM_ROLE`
 
 ---
 
-### Step 3 — Set up dbt to connect to Athena
+### Step 6 - Set Up the dbt Profile
 
-dbt needs a connection profile. Copy the example:
+On Windows (PowerShell):
+```
+Copy-Item dbt_project/profiles_example.yml -Destination "$HOME/.dbt/profiles.yml"
+notepad "$HOME/.dbt/profiles.yml"
+```
 
-```bash
-# This file lives outside the project (keeps credentials safe)
+On Mac/Linux:
+```
 mkdir -p ~/.dbt
 cp dbt_project/profiles_example.yml ~/.dbt/profiles.yml
 ```
 
-Edit `~/.dbt/profiles.yml` and replace `YOUR-BUCKET` with your actual S3 bucket name.
+Open the file and replace YOUR-BUCKET with your actual bucket name in both places it appears. Also add your AWS credentials:
+
+```yaml
+nyc_taxi:
+  target: dev
+  outputs:
+    dev:
+      type: athena
+      region_name: us-east-1
+      s3_staging_dir: s3://nyc-taxi-data-yourname/athena-results/
+      schema: nyc_taxi_db
+      database: awsdatacatalog
+      threads: 4
+      aws_access_key_id: YOUR_ACCESS_KEY
+      aws_secret_access_key: YOUR_SECRET_KEY
+```
 
 Test the connection:
-```bash
+```
 cd dbt_project
 dbt debug
 ```
 
-You should see "All checks passed!" at the bottom.
+You should see "All checks passed" at the bottom.
 
 ---
 
-### Step 4 — Run the pipeline
+### Step 7 - Run Ingestion
 
-```bash
-python scripts/run_pipeline.py
+Go back to the root folder:
+```
+cd ..
+python ingestion/ingest.py
 ```
 
-This runs all 4 steps automatically:
-1. Downloads NYC TLC data for Jan–Dec 2023 and uploads to S3 (~2–4 hours for full year, depending on your internet speed)
-2. Validates data quality
-3. Creates and runs the Glue crawler (~5 minutes)
-4. Runs all dbt models on Athena (~10–20 minutes for 3M rows)
+This downloads monthly Parquet files from January 2024 to March 2026 and uploads them to S3. It will take a while depending on your internet speed - expect 1 to 3 hours for the full date range.
 
-You can also run each step individually if you prefer:
+Files already uploaded are skipped automatically, so you can safely rerun this if it gets interrupted.
 
-```bash
-# Just ingestion
-python ingestion/ingest.py --start-year 2023 --start-month 1 --end-year 2023 --end-month 3
+---
 
-# Just validation
-python great_expectations_suite/validate.py
+### Step 8 - Set Up the Glue Crawler (do this manually in AWS console)
 
-# Just Glue setup
-python ingestion/setup_glue.py
+Do this after ingestion finishes.
 
-# Just dbt
+1. Log into AWS as your IAM user
+2. Search Glue - open it
+3. Left sidebar - Databases - Add database - name it nyc_taxi_db - Create
+4. Left sidebar - Crawlers - Create crawler
+5. Crawler name: nyc-taxi-raw-crawler - Next
+6. Add a data source - S3 - path: s3://nyc-taxi-data-yourname/raw/yellow_taxi/ - Add
+7. Next - IAM role: select nyc-taxi-glue-role - Next
+8. Target database: nyc_taxi_db - Next - Create crawler
+9. Click Run crawler - wait until status shows Ready (about 5 minutes)
+10. Go to Databases - nyc_taxi_db - check that a yellow_taxi table appears
+
+Important: if the yellow_taxi table shows a "duplicate columns" error when you run dbt later, go to Glue - Tables - yellow_taxi - Edit schema - find and delete the duplicate column (usually airport_fee) - Save. Then rerun dbt.
+
+---
+
+### Step 9 - Run dbt
+
+```
 cd dbt_project
-dbt seed        # loads the taxi zone lookup table
-dbt run         # runs all SQL models
-dbt test        # runs data quality tests
+dbt seed
+dbt run
 ```
+
+This loads the taxi zone lookup table and runs all six models - bronze, silver, and four gold tables. Expect 10 to 20 minutes for the full dataset.
 
 ---
 
-### Step 5 — Launch the dashboard
+### Step 10 - Launch the Dashboard
 
-```bash
+```
+cd ..
 streamlit run dashboard/app.py
 ```
 
-Open your browser to `http://localhost:8501`. You'll see the dashboard with all four tabs.
+Open your browser and go to http://localhost:8501
+
+---
+
+## Dashboard Overview
+
+The dashboard has four tabs:
+
+Revenue and Fares - total revenue by borough, average fare trends over the year, monthly trip volume.
+
+Peak Hour Demand - a heatmap showing trip volume by hour of day and day of week. Friday evenings consistently show the highest demand of the week.
+
+Tip Behaviour - tip rates and tip amounts by time of day and borough. Only covers credit card trips since cash tips are not recorded in the dataset.
+
+Driver Earnings - implied hourly earning rates by borough and time of day, estimated from fare, tip, and trip duration.
+
+The sidebar lets you filter by borough, year (2024, 2025, 2026), and month.
+
+---
+
+## Updating the Date Range
+
+The data currently covers January 2024 to March 2026. April 2026 is not yet published by the NYC TLC.
+
+To extend the range when new data becomes available:
+
+1. Update START_YEAR, START_MONTH, END_YEAR, END_MONTH in your .env file
+2. Also update start_date and end_date in dbt_project/dbt_project.yml
+3. Run ingestion again - it will skip months already uploaded
+4. Rerun the Glue crawler from the AWS console
+5. Run dbt run
+6. Restart the dashboard
 
 ---
 
 ## Cost Estimate
 
-Running this project for one year of data:
+Running this project on AWS for the full date range:
 
-| Service | Usage | Estimated Cost |
-|---|---|---|
-| S3 Storage | ~3GB of Parquet | ~$0.07/month |
-| Glue Crawler | ~10 minutes of crawling | ~$0.15 one-time |
-| Athena Queries | ~50GB scanned (dbt + dashboard) | ~$0.25 |
-| **Total** | | **~$0.50** |
+- S3 storage for roughly 4GB of Parquet files: about $0.09 per month
+- Glue crawler runs: about $0.15 one-time
+- Athena queries for dbt and dashboard: about $0.25 total
 
-This is genuinely inexpensive. The Parquet format is highly efficient — Athena only scans the columns it needs, and the partitioning (by year/month) means it can skip entire months of data when your query doesn't need them.
+The whole thing costs under a dollar to run. Parquet is efficient - Athena only scans the columns it needs, and the year/month partitioning lets it skip irrelevant files entirely.
 
 ---
 
-## Key Insights From the Data
+## Tech Stack
 
-These are real patterns from the 2023 NYC yellow cab dataset:
-
-**Demand**
-- Friday evenings (5–8pm) are the single highest-demand window of the week — surpassing every morning rush hour
-- Trip volume dips sharply after midnight and recovers slowly from 5am onward
-- Manhattan dominates in raw trip volume, but Queens and Brooklyn show strong weekend patterns
-
-**Fares**
-- Airport rate code trips (JFK, Newark) have significantly higher average fares — roughly 2–3x the standard rate
-- The fare-per-mile rate is actually lower for very long trips, as the meter rate structure favours shorter, urban rides
-
-**Tips**
-- Credit card tip rates are highest during evening hours (6pm–11pm)
-- Airport trips attract higher tip percentages on average
-- Weekday tipping slightly outpaces weekend tipping, likely reflecting business travellers vs leisure
-
-**Driver Earnings**
-- Manhattan pickups during morning and evening rush hours show the highest implied hourly earning rates
-- Late-night shifts (12am–4am) have fewer trips but higher average fares per trip
-
----
-
-## Tech Stack Summary
-
-| Tool | What It Does | Why We Chose It |
-|---|---|---|
-| Python | Ingestion, validation, orchestration | Widely known, excellent AWS libraries |
-| AWS S3 | Raw data storage (data lake) | Cheap, durable, works with everything |
-| AWS Glue | Schema catalogue (what columns exist) | Integrates natively with S3 + Athena |
-| AWS Athena | SQL query engine over S3 | Serverless, pay-per-query, no DB to manage |
-| Great Expectations | Data quality validation | Industry standard for pipeline data checks |
-| dbt Core | SQL transformations (Bronze/Silver/Gold) | Modular, testable, version-controlled SQL |
-| Streamlit | Dashboard web app | Fast to build, pure Python, no JavaScript |
-| Plotly | Interactive charts | Beautiful, interactive, well-documented |
+| Tool | Role |
+|---|---|
+| Python | Ingestion, validation, orchestration |
+| AWS S3 | Raw data storage |
+| AWS Glue | Schema catalogue |
+| AWS Athena | Serverless SQL query engine |
+| Great Expectations | Data quality validation |
+| dbt Core | SQL transformations |
+| Streamlit | Dashboard web app |
+| Plotly | Interactive charts |
 
 ---
 
 ## Data Source
 
-**NYC Taxi & Limousine Commission (TLC) Trip Record Data**
-- URL: https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page
-- Format: Parquet files, one per month
-- License: Public domain — free to use
+NYC Taxi and Limousine Commission Trip Record Data
+https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page
 
-The TLC has published this data since 2009. This project uses 2023 yellow cab records.
-
----
-
-## Questions or Issues?
-
-If something breaks:
-1. Check your `.env` file — most errors come from missing or wrong values there
-2. Run `dbt debug` to verify the Athena connection
-3. Check the AWS console to make sure your Glue crawler ran successfully
-4. Open an issue on this repo with the error message
-
----
-
-*Built with Python, dbt, AWS, and a lot of taxi data.*
+Monthly Parquet files, publicly available, no license restrictions.
