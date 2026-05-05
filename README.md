@@ -1,4 +1,4 @@
-# NYC Taxi Trip Analytics Pipeline
+# <ins>NYC Taxi Trip Analytics Pipeline</ins>
 
 A complete data engineering project that ingests, cleans, transforms, and visualises over 3 million real New York City yellow cab trips - built on AWS, dbt, and Streamlit.
 
