@@ -368,4 +368,4 @@ The whole thing costs under a dollar to run. Parquet is efficient - Athena only 
 NYC Taxi and Limousine Commission Trip Record Data
 https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page
 
-Monthly Parquet files, publicly available, no license restrictions.
+Monthly Parquet files, publicly available, no license restrictions!
